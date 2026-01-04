@@ -1,6 +1,5 @@
 /**
- * main.js - 통합 로직 (수정됨)
- * 하차지 메모 표시 기능 추가, 주소 복사 개선, 필수 입력값 검증 강화
+ * main.js - 개선된 SMS 분석, 주소 필수 검증, UI 개선 포함
  */
 
 // ==========================================
@@ -154,10 +153,8 @@ function showToast(msg) {
 
 function copyTextToClipboard(text, msg) {
     if (!text) return;
-    // Webview 호환성을 위해 execCommand 방식 우선 시도
     const ta = document.createElement("textarea");
     ta.value = text;
-    // 화면 밖으로 보내서 보이지 않게 처리
     ta.style.position = 'fixed';
     ta.style.left = '-9999px';
     document.body.appendChild(ta);
@@ -169,7 +166,6 @@ function copyTextToClipboard(text, msg) {
     } 
     catch (e) { 
         document.body.removeChild(ta);
-        // 실패 시 navigator API 시도
         if (navigator.clipboard) {
             navigator.clipboard.writeText(text)
                 .then(() => showToast(msg || '복사되었습니다.'))
@@ -271,7 +267,6 @@ function editRecord(id) {
     document.getElementById('time').disabled = true;
     
     toggleUI(); 
-    // Trigger input event to show address/memo for loaded record
     const fromIn = document.getElementById('from-center');
     const toIn = document.getElementById('to-center');
     if(fromIn) fromIn.dispatchEvent(new Event('input'));
@@ -303,7 +298,6 @@ function populateExpenseDatalist() {
     if(dl) dl.innerHTML = MEM_EXPENSE_ITEMS.map(item => `<option value="${item}"></option>`).join('');
 }
 
-// [수정된 함수] 상차지 및 하차지 정보 모두 표시
 function updateAddressDisplay() {
     const fromVal = document.getElementById('from-center').value.trim();
     const toVal = document.getElementById('to-center').value.trim();
@@ -313,12 +307,10 @@ function updateAddressDisplay() {
     
     let html = '';
 
-    // 상차지 정보 생성
     if (fromVal && MEM_LOCATIONS[fromVal]) {
         const loc = MEM_LOCATIONS[fromVal];
         html += `<div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed #ccc;">
             <span style="font-weight:bold; color:#007bff;">[상차] ${fromVal}</span>`;
-        
         if (loc.address) {
             html += `<div class="address-clickable" data-address="${loc.address}" style="margin-top:2px;">
                 📍 ${loc.address} <span style="font-size:0.8em; color:#999;">(클릭하여 복사)</span>
@@ -330,12 +322,10 @@ function updateAddressDisplay() {
         html += `</div>`;
     }
 
-    // 하차지 정보 생성
     if (toVal && MEM_LOCATIONS[toVal]) {
         const loc = MEM_LOCATIONS[toVal];
         html += `<div>
             <span style="font-weight:bold; color:#dc3545;">[하차] ${toVal}</span>`;
-        
         if (loc.address) {
             html += `<div class="address-clickable" data-address="${loc.address}" style="margin-top:2px;">
                 📍 ${loc.address} <span style="font-size:0.8em; color:#999;">(클릭하여 복사)</span>
@@ -348,8 +338,6 @@ function updateAddressDisplay() {
     }
 
     displayEl.innerHTML = html;
-    
-    // 내용이 있을 때만 보이기
     if (html !== '') {
         displayEl.style.display = 'block';
     } else {
@@ -382,7 +370,6 @@ function resetForm() {
     document.getElementById('time').value = getCurrentTimeString();
     document.getElementById('date').disabled = false;
     document.getElementById('time').disabled = false;
-    // 주소 표시 영역 초기화
     const displayEl = document.getElementById('address-display');
     if(displayEl) { displayEl.innerHTML = ''; displayEl.style.display = 'none'; }
     toggleUI();
@@ -392,16 +379,15 @@ function renderFrequentLocationButtons() {
     const fromContainer = document.getElementById('top-from-centers');
     const toContainer = document.getElementById('top-to-centers');
     if (!fromContainer || !toContainer) return;
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
     const fromCounts = {}, toCounts = {};
     MEM_RECORDS.forEach(r => {
-        const recordDate = new Date(r.date);
-        if ((r.type === '화물운송' || r.type === '대기') && recordDate >= twoWeeksAgo) {
+        if (r.type === '화물운송' || r.type === '대기') {
             if (r.from) fromCounts[r.from] = (fromCounts[r.from] || 0) + 1;
             if (r.to) toCounts[r.to] = (toCounts[r.to] || 0) + 1;
         }
     });
+
     const buildButtons = (data, container, targetInputId) => {
         container.innerHTML = '';
         const sorted = Object.entries(data).sort((a,b)=>b[1]-a[1]).slice(0,5);
@@ -933,41 +919,68 @@ function parseSmsText() {
 
         const itemDiv = document.createElement('div');
         itemDiv.className = "sms-item-card";
-        itemDiv.style = "background:white; padding:12px; border-radius:6px; margin-bottom:12px; border:2px solid #fab005; box-shadow: 0 4px 6px rgba(0,0,0,0.1);";
+        // 스타일은 style.css에서 제어 (float 해제 등 포함)
 
         const buildLocInput = (label, id, value, color) => {
             const locInfo = MEM_LOCATIONS[value];
             const needsInfo = !locInfo || !locInfo.address; 
             
+            // [수정] list="center-list" 추가하여 자동완성 지원
+            // [수정] oninput 이벤트 추가하여 선택 시 주소 자동 입력
             return `
                 <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
                     <span style="font-size:0.75em; color:#666; font-weight:bold;">${label}</span>
-                    <input type="text" id="${id}-name" value="${value}" 
+                    <input type="text" id="${id}-name" value="${value}" list="center-list"
+                        oninput="window.handleSmsNameInput(this, '${id}-addr', '${id}-memo')"
                         style="border:1px solid ${color}; border-radius:4px; padding:6px; font-weight:bold; color:${color}; font-size:0.95em;">
                     ${needsInfo ? `
-                        <input type="text" id="${id}-addr" placeholder="주소 정보 없음(입력)" 
-                            style="border:1px solid #ddd; border-radius:4px; padding:4px; font-size:0.8em; background:#fff9db;">
-                        <input type="text" id="${id}-memo" placeholder="메모(담당자 등)" 
+                        <input type="text" id="${id}-addr" placeholder="주소 정보 없음(필수)" 
+                            style="border:1px solid #ddd; border-radius:4px; padding:4px; font-size:0.8em; background:#fff0f0;">
+                        <input type="text" id="${id}-memo" placeholder="메모" 
                             style="border:1px solid #ddd; border-radius:4px; padding:4px; font-size:0.8em;">
-                    ` : `<div style="font-size:0.75em; color:#28a745;">✓ 주소 등록됨</div>`}
+                    ` : `
+                        <input type="text" id="${id}-addr" value="${locInfo.address || ''}" placeholder="주소" 
+                            style="border:1px solid #ddd; border-radius:4px; padding:4px; font-size:0.8em; background:#f9f9f9;">
+                        <input type="text" id="${id}-memo" value="${locInfo.memo || ''}" placeholder="메모" 
+                            style="border:1px solid #ddd; border-radius:4px; padding:4px; font-size:0.8em; background:#f9f9f9;">
+                    `}
                 </div>
             `;
         };
 
+        // [수정] 버튼 스타일 변경 (sms-save-btn 클래스 사용)
         itemDiv.innerHTML = `
             <div style="display:flex; gap:10px; margin-bottom:10px;">
                 ${buildLocInput('상차지', `from-${lineIdx}`, finalFrom, '#007bff')}
                 <div style="align-self:center; font-weight:bold; color:#ccc;">▶</div>
                 ${buildLocInput('하차지', `to-${lineIdx}`, finalTo, '#dc3545')}
             </div>
-            <button type="button" 
-                onclick="window.registerParsedTripWithInfo(this, ${lineIdx})" 
-                style="background:#28a745; color:white; border:none; padding:10px; border-radius:4px; font-size:0.9em; cursor:pointer; font-weight:bold; width:100%;">
-                확인 및 기록 저장
+            <button type="button" class="sms-save-btn"
+                onclick="window.registerParsedTripWithInfo(this, ${lineIdx})">
+                저장
             </button>
         `;
         resultsDiv.appendChild(itemDiv);
     });
+}
+
+// [추가] SMS 분석 카드에서 이름 입력 시 주소/메모 자동 채우기
+function handleSmsNameInput(input, addrId, memoId) {
+    const val = input.value.trim();
+    const loc = MEM_LOCATIONS[val];
+    const addrInput = document.getElementById(addrId);
+    const memoInput = document.getElementById(memoId);
+
+    if (loc && addrInput && memoInput) {
+        addrInput.value = loc.address || '';
+        memoInput.value = loc.memo || '';
+        addrInput.style.backgroundColor = '#f9f9f9'; // 기존 정보 있음 표시
+    } else if (addrInput) {
+        // 정보 없으면 초기화 및 필수 표시 색상
+        addrInput.value = '';
+        if(memoInput) memoInput.value = '';
+        addrInput.style.backgroundColor = '#fff0f0';
+    }
 }
 
 function registerParsedTripWithInfo(btn, lineIdx) {
@@ -985,6 +998,13 @@ function registerParsedTripWithInfo(btn, lineIdx) {
         return;
     }
 
+    // [수정] 주소 필수 검증 로직 추가
+    if (!fromAddr || !toAddr) {
+        alert("주소가 없는 상/하차지는 등록할 수 없습니다.\n주소를 입력해주세요.");
+        return;
+    }
+
+    // 주소 정보 업데이트 (기존 로직 유지)
     if (fromAddr || fromMemo) updateLocationData(fromName, fromAddr, fromMemo);
     if (toAddr || toMemo) updateLocationData(toName, toAddr, toMemo);
 
@@ -1005,7 +1025,7 @@ function registerParsedTripWithInfo(btn, lineIdx) {
     });
     
     btn.disabled = true;
-    btn.textContent = "등록 완료";
+    btn.textContent = "완료";
     btn.style.background = "#bdc3c7";
     const card = btn.closest('.sms-item-card');
     card.style.background = "#f8f9fa";
@@ -1019,34 +1039,31 @@ function registerParsedTripWithInfo(btn, lineIdx) {
 
 async function readLatestSMS() {
     try {
-        // Capacitor 플러그인이 로드되어 있는지 확인
         if (typeof CapacitorSmsReader === 'undefined' && window.CapacitorSmsReader) {
-            // 전역 스코프에 있을 경우 매핑
         }
-
-        // 플러그인이 없으면 경고 후 종료
         if (typeof CapacitorSmsReader === 'undefined') {
             console.warn("CapacitorSmsReader plugin not found. Running in browser mode?");
             alert("SMS 플러그인을 찾을 수 없습니다 (브라우저 모드)");
             return;
         }
-        
         const perm = await CapacitorSmsReader.requestReadPermission();
         if (!perm.granted) {
           alert('SMS 읽기 권한이 필요합니다.');
           return;
         }
-    
         const result = await CapacitorSmsReader.getSMS({
           max: 1,
           inbox: true,
           sent: false,
         });
-    
         if (result && result.messages && result.messages.length > 0) {
           const msg = result.messages[0];
           const smsInput = document.getElementById('sms-input');
-          if (smsInput) smsInput.value = msg.body || '';
+          if (smsInput) {
+              smsInput.value = msg.body || '';
+              // 내용이 들어갔으니 높이 조절 트리거
+              autoResizeTextarea(smsInput);
+          }
           parseSmsText();
         } else {
           alert('읽을 수 있는 최근 문자가 없습니다.');
@@ -1055,6 +1072,12 @@ async function readLatestSMS() {
         console.error('SMS 읽기 실패', e);
         alert('SMS 읽기 중 오류가 발생했습니다.');
       }
+}
+
+// [추가] Textarea 높이 자동 조절 함수
+function autoResizeTextarea(element) {
+    element.style.height = 'auto';
+    element.style.height = (element.scrollHeight) + 'px';
 }
 
 // ==========================================
@@ -1106,6 +1129,8 @@ function updateAllDisplays() {
 window.updateAllDisplays = updateAllDisplays;
 window.registerParsedTripWithInfo = registerParsedTripWithInfo;
 window.readLatestSMS = readLatestSMS;
+window.handleSmsNameInput = handleSmsNameInput; // [추가]
+
 window.viewDateDetails = (date) => {
     const picker = document.getElementById('today-date-picker');
     if (picker) {
@@ -1189,13 +1214,11 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // (2) Global Click Delegation (Fixes Toggle & Dynamic Elements)
+    // (2) Global Click Delegation
     document.addEventListener('click', (e) => {
-        // Toggle Logic for Settings & Legends (using Delegation)
         const toggleLegend = e.target.closest('.mobile-toggle-legend');
         const toggleHeader = e.target.closest('.collapsible-header');
         
-        // Input form legends
         if (toggleLegend) {
             const bodyId = toggleLegend.dataset.target;
             const body = getEl(bodyId);
@@ -1205,14 +1228,11 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
         
-        // Settings accordion headers
         if (toggleHeader) {
             const body = toggleHeader.nextElementSibling;
             if (body && body.classList.contains('collapsible-body')) {
                 toggleHeader.classList.toggle("active");
                 body.classList.toggle("hidden");
-                
-                // Refresh specific sections if opened
                 if (!body.classList.contains('hidden')) {
                     if (toggleHeader.id === 'toggle-subsidy-management') displaySubsidyRecords(false);
                     if (toggleHeader.id === 'toggle-center-management') displayCenterList();
@@ -1220,14 +1240,12 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        // [수정] Address Copy - 더욱 명확한 타겟팅
         const addrTarget = e.target.closest('.address-clickable');
         if (addrTarget) {
             const addr = addrTarget.dataset.address;
             if (addr) copyTextToClipboard(addr, '주소 복사됨');
         }
 
-        // Today Table Record Actions
         const rowTarget = e.target.closest('#today-records-table tbody tr');
         const tableLocTarget = e.target.closest('.location-clickable');
         
@@ -1236,14 +1254,13 @@ document.addEventListener("DOMContentLoaded", () => {
             const loc = MEM_LOCATIONS[center];
             if(loc && loc.address) copyTextToClipboard(loc.address, '주소 복사됨');
             else copyTextToClipboard(center, '이름 복사됨');
-            return; // Prevent row click
+            return; 
         }
         
         if (rowTarget && rowTarget.dataset.id && !tableLocTarget) {
             editRecord(parseInt(rowTarget.dataset.id));
         }
 
-        // Tab Switching
         if (e.target.classList.contains('tab-btn') && e.target.parentElement.classList.contains('view-tabs')) {
             document.querySelectorAll('.view-tabs .tab-btn').forEach(b => b.classList.remove("active"));
             e.target.classList.add("active");
@@ -1253,7 +1270,6 @@ document.addEventListener("DOMContentLoaded", () => {
             updateAllDisplays();
         }
         
-        // Mileage Summary Tab Switching
         if (e.target.classList.contains('tab-btn') && e.target.parentElement.id === 'mileage-summary-controls') {
              document.querySelectorAll('#mileage-summary-controls .tab-btn').forEach(b => b.classList.remove("active"));
              e.target.classList.add("active");
@@ -1263,6 +1279,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // (3) Inputs
     getEl('btn-parse-sms')?.addEventListener('click', parseSmsText);
+    
+    // [추가] SMS 입력창 자동 조절 이벤트 연결
+    const smsInput = getEl('sms-input');
+    if(smsInput) {
+        smsInput.addEventListener('input', function() {
+            autoResizeTextarea(this);
+        });
+    }
+
     getEl('center-search-input')?.addEventListener('input', (e) => displayCenterList(e.target.value));
     
     const handleLocationInput = () => {
@@ -1297,17 +1322,13 @@ document.addEventListener("DOMContentLoaded", () => {
     // (4) Form Actions
     getEl('btn-register-trip')?.addEventListener('click', () => {
         const formData = getFormDataWithoutTime();
-        
-        // [수정] 필수 입력값 검증 (상하차지)
         if (formData.type === '화물운송' || formData.type === '대기') {
             if (!formData.from || !formData.to) {
                 alert('상차지와 하차지를 모두 입력해주세요.');
                 return;
             }
         }
-        
         if (formData.type === '화물운송' && formData.distance <= 0) { alert('운행거리를 입력해주세요.'); return; }
-        
         addRecord({ id: Date.now(), date: getEl('date').value, time: getEl('time').value, ...formData });
         showToast('등록되었습니다.');
         resetForm();
@@ -1316,14 +1337,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     getEl('btn-start-trip')?.addEventListener('click', () => {
         const formData = getFormDataWithoutTime();
-        // [수정] 필수 입력값 검증
         if (formData.type === '화물운송' || formData.type === '대기') {
             if (!formData.from || !formData.to) {
                 alert('상차지와 하차지를 모두 입력해주세요.');
                 return;
             }
         }
-
         addRecord({ id: Date.now(), date: getTodayString(), time: getCurrentTimeString(), ...formData });
         showToast('운행 시작됨');
         resetForm();
